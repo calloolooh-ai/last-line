@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { prescan } from "@/lib/firewall/prescan";
+import { parseSSEStream } from "@/lib/sse";
 import type { AnalysisEvent } from "@/lib/types";
 import type { UIMessage } from "@/components/chat/types";
 import { MessageList } from "@/components/chat/MessageList";
@@ -43,20 +44,8 @@ async function streamAnalysis(
   });
   if (!res.body) throw new Error("No response body from /api/analyze");
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith("data:")) continue;
-      onEvent(JSON.parse(line.slice(5).trim()) as AnalysisEvent);
-    }
+  for await (const event of parseSSEStream<AnalysisEvent>(res.body)) {
+    onEvent(event);
   }
 }
 
