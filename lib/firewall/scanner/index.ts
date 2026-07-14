@@ -61,7 +61,7 @@ export async function scanPrompt(
   const findings = mergeOverlapping(rawFindings);
   const riskLevel = worstSeverity(findings);
   const redacted = redact(text, findings);
-  const blocked = riskLevel === "critical" || injection.confidence > 0.8;
+  const blocked = riskLevel === "critical" || (injection.isInjection && injection.confidence > 0.8);
 
   const result: ScanResult = { findings, injection, riskLevel, redacted, blocked };
 

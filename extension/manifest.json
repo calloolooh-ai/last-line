@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Last Line — AI Trust Firewall",
+  "version": "0.1.0",
+  "description": "Catches leaked secrets and prompt injection before you send, verifies ChatGPT's claims after it answers.",
+  "background": {
+    "service_worker": "src/background/service-worker.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["src/content/chatgpt.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://last-line-two.vercel.app/*"
+  ],
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Last Line"
+  }
+}

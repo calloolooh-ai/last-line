@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# extension build output + its own deps
+extension/node_modules
+extension/dist
+extension/.vite

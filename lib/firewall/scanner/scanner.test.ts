@@ -253,6 +253,17 @@ describe("scanPrompt", () => {
     expect(result.blocked).toBe(true);
   });
 
+  it("does NOT block a prompt the classifier is confidently NOT calling an injection", async () => {
+    const llm = fakeLLM(async () => ({
+      isInjection: false,
+      confidence: 0.99,
+      technique: null,
+      rationale: "This is an ordinary question.",
+    }));
+    const result = await scanPrompt("whats 2+2", { llm });
+    expect(result.blocked).toBe(false);
+  });
+
   it("uses the cache provider to memoize results", async () => {
     const store = new Map<string, unknown>();
     const cache = {
