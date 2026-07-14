@@ -1,64 +1,178 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { prescan } from "@/lib/firewall/prescan";
+import type { AnalysisEvent } from "@/lib/types";
+import type { UIMessage } from "@/components/chat/types";
+import { MessageList } from "@/components/chat/MessageList";
+import { Composer } from "@/components/chat/Composer";
+import { ExplainabilityPanel } from "@/components/firewall/ExplainabilityPanel";
+
+function uid() {
+  return Math.random().toString(36).slice(2);
+}
+
+async function streamChat(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  onChunk: (chunk: string) => void,
+) {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  if (!res.body) throw new Error("No response body from /api/chat");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onChunk(decoder.decode(value, { stream: true }));
+  }
+}
+
+async function streamAnalysis(
+  input: { prompt: string; response: string; messageId: string },
+  onEvent: (event: AnalysisEvent) => void,
+) {
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.body) throw new Error("No response body from /api/analyze");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data:")) continue;
+      onEvent(JSON.parse(line.slice(5).trim()) as AnalysisEvent);
+    }
+  }
+}
 
 export default function Home() {
+  const [messages, setMessages] = useState<UIMessage[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
+
+  function updateMessage(id: string, patch: Partial<UIMessage>) {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }
+
+  async function handleSend(text: string) {
+    const userScan = prescan(text);
+    const userMessage: UIMessage = {
+      id: uid(),
+      role: "user",
+      content: text,
+      scanRisk: userScan.riskLevel,
+    };
+    const assistantId = uid();
+    const assistantMessage: UIMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      streaming: true,
+      analysis: { loading: true },
+    };
+
+    const history = [...messages, userMessage];
+    setMessages([...history, assistantMessage]);
+    setActiveAnalysisId(assistantId);
+    setBusy(true);
+
+    try {
+      let full = "";
+      await streamChat(
+        history.map((m) => ({ role: m.role, content: m.content })),
+        (chunk) => {
+          full += chunk;
+          updateMessage(assistantId, { content: full });
+        },
+      );
+      updateMessage(assistantId, { streaming: false });
+
+      await streamAnalysis({ prompt: text, response: full, messageId: assistantId }, (event) => {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantId) return m;
+            const prevAnalysis = m.analysis ?? { loading: true };
+            switch (event.type) {
+              case "scan":
+                return { ...m, analysis: { ...prevAnalysis, scan: event.scan, loading: true } };
+              case "claims":
+                return m;
+              case "claim_verified":
+                return {
+                  ...m,
+                  analysis: {
+                    ...prevAnalysis,
+                    claims: [...(prevAnalysis.claims ?? []), event.claim],
+                    loading: true,
+                  },
+                };
+              case "hallucination":
+                return {
+                  ...m,
+                  analysis: { ...prevAnalysis, hallucination: event.estimate, loading: true },
+                };
+              case "trust":
+                return { ...m, analysis: { ...prevAnalysis, trust: event.trust, loading: true } };
+              case "done":
+                return {
+                  ...m,
+                  analysis: {
+                    scan: event.analysis.scan,
+                    claims: event.analysis.claims,
+                    hallucination: event.analysis.hallucination,
+                    trust: event.analysis.trust,
+                    loading: false,
+                  },
+                };
+              case "error":
+                return { ...m, analysis: { ...prevAnalysis, loading: false, error: event.message } };
+              default:
+                return m;
+            }
+          }),
+        );
+        if (event.type === "scan") {
+          updateMessage(userMessage.id, { scanRisk: event.scan.riskLevel });
+        }
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const activeMessage = messages.find((m) => m.id === activeAnalysisId);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex flex-1 flex-col items-center bg-background">
+      <header className="w-full max-w-5xl px-6 pt-8">
+        <h1 className="text-lg font-semibold text-foreground">Last Line</h1>
+        <p className="text-sm text-muted">
+          The last line of defense between you and a confidently wrong model.
+        </p>
+      </header>
+
+      <main className="flex w-full max-w-5xl flex-1 gap-4 px-6 py-4">
+        <div className="flex flex-1 flex-col gap-3">
+          <MessageList messages={messages} />
+          <Composer onSend={handleSend} disabled={busy} />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+
+        {activeMessage?.analysis && <ExplainabilityPanel analysis={activeMessage.analysis} />}
       </main>
     </div>
   );

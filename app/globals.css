@@ -1,26 +1,102 @@
 @import "tailwindcss";
 
+/**
+ * Last Line — dark-first cybersecurity theme.
+ * Semantic colors are load-bearing, not decorative:
+ *   emerald = verified · yellow = caution · red = risk · blue = accent/system
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #06080c;
+  --surface: #0c1017;
+  --surface-2: #121824;
+  --border: #1e2637;
+  --foreground: #e6edf7;
+  --muted: #7d8da6;
+
+  --verified: #10b981;
+  --caution: #eab308;
+  --risk: #ef4444;
+  --accent: #3b82f6;
+
+  --verified-dim: color-mix(in srgb, var(--verified) 14%, transparent);
+  --caution-dim: color-mix(in srgb, var(--caution) 14%, transparent);
+  --risk-dim: color-mix(in srgb, var(--risk) 14%, transparent);
+  --accent-dim: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+
+  --color-verified: var(--verified);
+  --color-caution: var(--caution);
+  --color-risk: var(--risk);
+  --color-accent: var(--accent);
+
+  --color-verified-dim: var(--verified-dim);
+  --color-caution-dim: var(--caution-dim);
+  --color-risk-dim: var(--risk-dim);
+  --color-accent-dim: var(--accent-dim);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  /* Faint grid — reads as "instrument panel" without becoming a novelty. */
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 40%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 40%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-attachment: fixed;
+}
+
+/* Glassmorphism, used sparingly: panels that float above the grid. */
+@utility glass {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+}
+
+@keyframes scan-sweep {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(100%); }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 currentColor; opacity: 0.5; }
+  70% { box-shadow: 0 0 0 8px transparent; opacity: 0; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@utility animate-scan { animation: scan-sweep 1.6s ease-in-out infinite; }
+@utility animate-pulse-ring { animation: pulse-ring 1.8s ease-out infinite; }
+@utility animate-rise { animation: rise 0.28s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
