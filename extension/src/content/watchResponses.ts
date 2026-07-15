@@ -20,20 +20,30 @@ export interface CapturedTurn {
   prompt: string;
   response: string;
   messageId: string;
+  /** The live assistant message element, so callers can highlight risky spans in place. */
+  element: Element;
 }
 
 function textOf(el: Element): string {
   return (el.textContent ?? "").trim();
 }
 
+/**
+ * Walks backward through document order across ALL message elements (not
+ * `previousElementSibling`) to find the user turn preceding this assistant
+ * turn. ChatGPT nests each turn in its own wrapper rather than laying user
+ * and assistant messages out as flat DOM siblings, so a sibling-only walk
+ * never reaches back far enough and silently returns null forever.
+ */
 function findPrecedingUserMessage(assistantEl: Element): string | null {
-  let node: Element | null = assistantEl;
-  while ((node = node.previousElementSibling)) {
-    if (node.matches(MESSAGE_SELECTOR) && node.getAttribute("data-message-author-role") === "user") {
-      return textOf(node);
+  const all = document.querySelectorAll(MESSAGE_SELECTOR);
+  const idx = Array.prototype.indexOf.call(all, assistantEl);
+  if (idx === -1) return null;
+  for (let i = idx - 1; i >= 0; i--) {
+    const el = all[i];
+    if (el.getAttribute("data-message-author-role") === "user") {
+      return textOf(el);
     }
-    const nested = node.querySelector('[data-message-author-role="user"]');
-    if (nested) return textOf(nested);
   }
   return null;
 }
@@ -65,13 +75,25 @@ export function watchForFinishedTurns(onTurn: (turn: CapturedTurn) => void): () 
         messageId:
           assistantEl.getAttribute("data-message-id") ??
           `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        element: assistantEl,
       });
     }, STABLE_MS);
 
     pending.set(assistantEl, timer);
   }
 
-  const observer = new MutationObserver((mutations) => {
+  // ChatGPT's page fires this observer constantly (streaming text, telemetry,
+  // unrelated re-renders elsewhere on the page) — buffering mutation records
+  // and processing them at most once per animation frame keeps the
+  // closest()/querySelectorAll() work below from running on every single
+  // microtask-batched callback, which was adding to overall main-thread
+  // contention during typing/streaming.
+  let bufferedMutations: MutationRecord[] = [];
+  let scheduled = false;
+  const processBuffered = () => {
+    scheduled = false;
+    const mutations = bufferedMutations;
+    bufferedMutations = [];
     for (const mutation of mutations) {
       const target =
         mutation.target instanceof Element ? mutation.target.closest(MESSAGE_SELECTOR) : null;
@@ -88,6 +110,13 @@ export function watchForFinishedTurns(onTurn: (turn: CapturedTurn) => void): () 
         for (const el of assistantEls) scheduleCheck(el);
       }
     }
+  };
+
+  const observer = new MutationObserver((mutations) => {
+    bufferedMutations.push(...mutations);
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(processBuffered);
   });
 
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });

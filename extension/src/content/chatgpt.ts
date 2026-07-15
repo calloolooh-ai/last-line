@@ -5,7 +5,10 @@ import { ComposerOverlay } from "./ComposerOverlay";
 import { watchForFinishedTurns } from "./watchResponses";
 import { requestAnalysis } from "./requestAnalysis";
 import { Panel } from "./panel/Panel";
-import { startAnalysis, applyEvent } from "./panel/store";
+import { startAnalysis, applyEvent, setCodeRisks } from "./panel/store";
+import { detectCodeRisks } from "./codeRisks";
+import { highlightClaims } from "./highlightResponse";
+import type { AnalysisEvent, VerifiedClaim } from "@/lib/types";
 
 let composerRoot: Root | null = null;
 let composerHostEl: HTMLElement | null = null;
@@ -47,5 +50,22 @@ mountPanel();
 
 watchForFinishedTurns((turn) => {
   startAnalysis();
-  requestAnalysis(turn, applyEvent);
+  setCodeRisks(detectCodeRisks(turn.response));
+
+  // highlightClaims() clears and redraws every mark each call, so accumulate
+  // the full set seen so far rather than re-highlighting only the newest
+  // claim (which would wipe out every earlier one).
+  const seenClaims: VerifiedClaim[] = [];
+
+  const onEvent = (event: AnalysisEvent) => {
+    applyEvent(event);
+    if (event.type === "claim_verified") {
+      seenClaims.push(event.claim);
+      highlightClaims(turn.element, seenClaims);
+    } else if (event.type === "done") {
+      highlightClaims(turn.element, event.analysis.claims);
+    }
+  };
+
+  requestAnalysis(turn, onEvent);
 });

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { Analysis, AnalysisEvent } from "@/lib/types";
+import type { CodeRisk } from "../codeRisks";
 
 export interface PanelState {
   visible: boolean;
@@ -9,9 +10,12 @@ export interface PanelState {
   claims?: Analysis["claims"];
   hallucination?: Analysis["hallucination"];
   trust?: Analysis["trust"];
+  codeRisks?: CodeRisk[];
+  /** Signatures the user has already marked "not accurate" this session, so re-renders can grey them out. */
+  dismissed: Set<string>;
 }
 
-let state: PanelState = { visible: false, loading: false };
+let state: PanelState = { visible: false, loading: false, dismissed: new Set() };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<PanelState>) {
@@ -28,7 +32,16 @@ export function startAnalysis() {
     claims: undefined,
     hallucination: undefined,
     trust: undefined,
+    codeRisks: undefined,
   });
+}
+
+export function setCodeRisks(risks: CodeRisk[]) {
+  set({ codeRisks: risks });
+}
+
+export function markDismissedLocally(signature: string) {
+  set({ dismissed: new Set(state.dismissed).add(signature) });
 }
 
 export function applyEvent(event: AnalysisEvent) {

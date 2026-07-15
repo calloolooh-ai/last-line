@@ -29,7 +29,25 @@ export function watchForComposer(onFound: (el: HTMLElement) => void): () => void
   };
 
   check();
-  const observer = new MutationObserver(check);
+
+  // ChatGPT's page generates a constant flood of unrelated DOM mutations
+  // (streaming text, telemetry, decorations) — observing document.body's
+  // whole subtree means this callback fires on every single one of them.
+  // Coalescing to at most once per animation frame keeps findComposer()'s
+  // querySelector off the hot path of every keystroke/mutation instead of
+  // running it hundreds of times a second, which was starving React's own
+  // render of the composer overlay badge.
+  let scheduled = false;
+  const scheduleCheck = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      check();
+    });
+  };
+
+  const observer = new MutationObserver(scheduleCheck);
   observer.observe(document.body, { childList: true, subtree: true });
   return () => observer.disconnect();
 }
