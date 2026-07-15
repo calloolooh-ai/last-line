@@ -2,12 +2,12 @@
 
 AI trust firewall. Built for Hoobit Hacks 2026.
 
-Sits between you and ChatGPT. Before you send a message, it scans for stuff you probably shouldn't be pasting into a chatbot, like API keys, passwords, credit card numbers, or a prompt injection someone slipped you. After ChatGPT answers, it pulls out the factual claims in the response, checks them against real web sources, and gives you a trust score so you're not just blindly believing whatever it said.
+It's a Chrome extension that sits between you and ChatGPT. Before you send a message, it scans for stuff you probably shouldn't be pasting into a chatbot, like API keys, passwords, credit card numbers, or a prompt injection someone slipped you. After ChatGPT answers, it pulls out the factual claims in the response, checks them against real web sources, and gives you a trust score so you're not just blindly believing whatever it said.
 
 There's two parts here:
 
-- `app/`, `lib/`, `components/` - the Next.js web app, the actual firewall logic (scanner, claims, verify, hallucination, score)
-- `extension/` - a Chrome extension that injects the firewall directly into chatgpt.com
+- `extension/` - the actual product, a Chrome extension that injects the firewall directly into chatgpt.com
+- `app/`, `lib/`, `components/` - a Next.js backend that hosts the firewall API (scanner, claims, verify, hallucination, score) the extension calls, plus a browser-based demo of the same flow
 
 ## How the firewall actually works
 
@@ -15,9 +15,43 @@ There's two parts here:
 
 **Inbound (after it answers):** the response gets broken into individual factual claims, each one gets checked against live web search results (never against the model's own training data, that's an explicit rule so it can't just vouch for itself), then you get a hallucination risk score and an overall trust score 0 to 100.
 
-**Chrome extension:** same firewall logic running client side inside chatgpt.com. Shows a warning pill above the composer while you type, and a floating panel after the response with the trust score, claim verdicts, and code risk detection for anything ChatGPT hands you in a code block (hardcoded secrets, SQL injection via string concat, eval usage, that kind of thing).
+**In the extension:** a content script runs client side inside chatgpt.com. Shows a warning pill above the composer while you type, and a floating panel after the response with the trust score, claim verdicts, and code risk detection for anything ChatGPT hands you in a code block (hardcoded secrets, SQL injection via string concat, eval usage, that kind of thing). The heavy lifting (LLM calls, web search) happens through the backend API; the extension just streams the results back into the page.
 
-## Running the web app
+## Running the Chrome extension
+
+```bash
+cd extension
+npm install
+npm run build
+```
+
+This spits out a `dist/` folder. To load it:
+
+1. Go to `chrome://extensions`
+2. Turn on Developer mode (top right toggle)
+3. Click "Load unpacked"
+4. Pick the `extension/dist` folder
+
+Reload the extension from that page any time you rebuild. Then go to chatgpt.com in a fresh tab and it should just work, no popup, everything shows up inline on the page itself.
+
+To work on the extension with hot reload instead of rebuilding every time:
+
+```bash
+npm run dev
+```
+
+Extension-only commands (run from inside `extension/`):
+
+```bash
+npm run typecheck
+npx vitest run   # unit tests, includes jsdom simulations of the real chatgpt.com DOM
+```
+
+By default the extension talks to the hosted backend at `last-line-two.vercel.app`. To point it at a local backend instead, run the backend yourself (see below) and update the URL it calls in `extension/src/background`.
+
+## Running the backend
+
+The extension needs somewhere to send its analysis requests. That's this Next.js app, it's also got a browser-based demo of the same firewall flow at `/` if you want to poke at it without loading the extension.
 
 You need Node installed. Then:
 
@@ -61,39 +95,12 @@ npm run typecheck   # tsc --noEmit
 npm run lint
 ```
 
-## Running the Chrome extension
-
-```bash
-cd extension
-npm install
-npm run build
-```
-
-This spits out a `dist/` folder. To load it:
-
-1. Go to `chrome://extensions`
-2. Turn on Developer mode (top right toggle)
-3. Click "Load unpacked"
-4. Pick the `extension/dist` folder
-
-Reload the extension from that page any time you rebuild. Then go to chatgpt.com in a fresh tab and it should just work, no popup, everything shows up inline on the page itself.
-
-To work on the extension with hot reload instead of rebuilding every time:
-
-```bash
-npm run dev
-```
-
-Extension-only commands (run from inside `extension/`):
-
-```bash
-npm run typecheck
-npx vitest run   # unit tests, includes jsdom simulations of the real chatgpt.com DOM
-```
-
 ## Project layout
 
 ```
+extension/
+  src/content/            content script that runs on chatgpt.com
+  src/background/         service worker, talks to the analyze API
 app/
   api/chat/route.ts       streams the chat answer
   api/analyze/route.ts    streams the firewall analysis (SSE)
@@ -105,10 +112,7 @@ lib/
     verify/                Tavily search + judge model, decides verified/unverified/contradicted
     hallucination/        turns verified claims into a risk score
     score/                 the actual 0-100 trust score formula
-components/firewall/      the panel UI pieces for the web app
-extension/
-  src/content/            content script that runs on chatgpt.com
-  src/background/         service worker, talks to the analyze API
+components/firewall/      the panel UI pieces for the web demo
 ```
 
 Everything under `lib/firewall/` is pure functions, no DB, no framework, so it's all unit tested and easy to swap out.
